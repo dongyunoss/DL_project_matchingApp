@@ -172,8 +172,8 @@ def make_handler(sheet: LabelSheet, image_dir: Path, guide: str = ""):
                 i = self._index(path.rsplit("/", 1)[1])
                 if i is None:
                     return self._send(404, b"not found", "text/plain")
-                f = (image_dir / Path(sheet.rows[i]["filename"]).name).resolve()
-                if f.parent != image_dir or not f.is_file():  # 시트에 있는 파일명만, 이미지 폴더 안에서만
+                f = (image_dir / sheet.rows[i]["filename"]).resolve()
+                if image_dir not in f.parents or not f.is_file():  # 시트에 있는 경로만, 이미지 폴더 안에서만
                     return self._send(404, f"image not found: {f.name}".encode(), "text/plain; charset=utf-8")
                 return self._send(200, f.read_bytes(), mimetypes.guess_type(f.name)[0] or "application/octet-stream")
             return self._send(404, b"not found", "text/plain")
@@ -216,8 +216,8 @@ def serve(sheet_path, image_dir, port=8765, open_browser=True, guide_path=None):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--sheet", required=True, help="내 라벨링 시트 CSV (sample_celeba_candidates가 만든 annotators/<이름>.csv)")
-    ap.add_argument("--images", required=True, help="이미지 폴더 (예: data/labeling_images 또는 data/celeba/img_align_celeba)")
+    ap.add_argument("--sheet", required=True, help="내 라벨링 시트 CSV (sample_fairface_candidates가 만든 annotators/<이름>.csv)")
+    ap.add_argument("--images", required=True, help="이미지 폴더 (예: data/labeling_images 또는 FairFace 이미지 폴더)")
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--no-browser", action="store_true")
     ap.add_argument("--guide", default=None, help="화면에 띄울 라벨링 기준 텍스트 파일 (선택)")

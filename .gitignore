@@ -25,3 +25,4 @@ __pycache__/
 .idea/
 .DS_Store
 Thumbs.db
+faceapp/web/vendor/

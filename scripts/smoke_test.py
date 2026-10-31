@@ -138,6 +138,7 @@ def smoke_overrides(run_dir: Path, img_dir: Path, labels_csv: Path, epochs: int 
         f"data.image_dir={img_dir.as_posix()}",
         f"data.labels_csv={labels_csv.as_posix()}",
         f"data.image_size={image_size}", "data.num_workers=0",
+        "data.dedup_hamming=null",  # 합성 도형은 일부러 서로 비슷하게 만든 것이라 중복 검출을 끈다
         f"model.pretrained={str(pretrained).lower()}",
         f"train.epochs={epochs}", "train.batch_size=16", "train.accum_steps=2",
         "train.freeze_backbone_epochs=1", "train.warmup_epochs=1", "train.soft_labels=true",

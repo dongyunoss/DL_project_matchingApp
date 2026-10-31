@@ -1,0 +1,8 @@
+# 얼굴 유형 클래스의 유일한 기준. 순서 = 모델 출력 index = 확률/선호 벡터의 순서.
+# 제안서: 1차 후보 4종. TODO(미정): 라벨링 파일럿 결과(scripts.merge_labels의 클래스별 일치도)를 보고 최종 확정.
+# 클래스를 바꾸면 기존 체크포인트는 쓸 수 없다 (load_checkpoint가 불일치를 감지해 에러).
+classes:
+  - {name: dog, ko: 강아지상}
+  - {name: cat, ko: 고양이상}
+  - {name: rabbit, ko: 토끼상}
+  - {name: fox, ko: 여우상}

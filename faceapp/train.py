@@ -12,6 +12,7 @@ import argparse
 import csv
 import math
 import time
+from collections import Counter
 from pathlib import Path
 
 import numpy as np
@@ -20,6 +21,7 @@ import torch
 from . import CLASSES
 from .calibrate import calibrate_checkpoint
 from .config import add_config_args, config_from_args
+from .dedup import assign_groups
 from .data import (FaceDataset, build_transforms, class_counts, read_labels_csv, split_by_identity,
                    write_records_csv)
 from .evaluate import classification_metrics, make_loader
@@ -39,10 +41,25 @@ def warmup_cosine(total_steps: int, warmup_steps: int):
 
 
 def prepare_splits(cfg: dict) -> dict:
-    records = read_labels_csv(cfg["data"]["labels_csv"])
-    splits = split_by_identity(records, cfg["data"]["split_ratios"], cfg["seed"])
+    """라벨 CSV → (identity + 근접 중복 이미지) 그룹 → 그룹 단위 split. splits.csv, duplicates.csv 저장."""
+    dc = cfg["data"]
+    records = read_labels_csv(dc["labels_csv"])
+    records, dups = assign_groups(records, dc["image_dir"], dc.get("dedup_hamming", 5))
+    if dups:
+        print(f"[dedup] 동일·유사 이미지 {len(dups)}쌍 → 같은 분할로 묶음 (duplicates.csv에서 확인)")
+        sizes = Counter(r["group"] for r in records)
+        biggest = max(sizes.values())
+        if biggest >= 5 and biggest > 0.05 * len(records):
+            print(f"[dedup 경고] 한 그룹에 {biggest}장({biggest / len(records):.0%})이 묶였습니다. "
+                  "서로 다른 얼굴이 묶였을 수 있으니 duplicates.csv를 확인하고 data.dedup_hamming을 낮추세요.")
+    splits = split_by_identity(records, dc["split_ratios"], cfg["seed"])
     out = ensure_dir(cfg["output_dir"])
-    write_records_csv([r for s in ("train", "val", "test") for r in splits[s]], out / "splits.csv")
+    write_records_csv([r for s in ("train", "val", "test") for r in splits[s]], out / "splits.csv",
+                      extra_cols=("group", "split"))
+    with open(out / "duplicates.csv", "w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        w.writerow(["filename_a", "filename_b", "hamming"])
+        w.writerows(dups)
     return splits
 
 
@@ -93,19 +110,24 @@ def validate(model, loader, device, cfg, class_weights):
     return {"loss": loss, "accuracy": m["accuracy"], "macro_f1": m["macro_f1"]}
 
 
-def train(cfg: dict) -> dict:
+def train(cfg: dict, splits: dict | None = None) -> dict:
+    """splits를 주면 그대로 사용 (데이터 규모 실험에서 val/test 고정용), 없으면 라벨 CSV로 새로 분할."""
     set_seed(cfg["seed"])
     rng = np.random.RandomState(cfg["seed"])
     device = get_device()
     tc = cfg["train"]
     out_dir = ensure_dir(cfg["output_dir"])
 
-    splits = prepare_splits(cfg)
+    if splits is None:
+        splits = prepare_splits(cfg)
+    else:
+        write_records_csv([r for s in ("train", "val", "test") for r in splits[s]], out_dir / "splits.csv",
+                          extra_cols=("group", "split"))
     counts = class_counts(splits["train"])
     print(f"[data] train={len(splits['train'])} val={len(splits['val'])} test={len(splits['test'])} "
           f"| train class counts {dict(zip(CLASSES, counts))}")
     if not splits["train"] or not splits["val"]:
-        raise ValueError("train/val split이 비어 있습니다. 라벨 수를 늘리세요.")
+        raise ValueError("train/val split이 비어 있습니다. 라벨 수를 늘리거나, 중복 그룹이 너무 크면 data.dedup_hamming을 낮추세요.")
 
     img_dir, soft = cfg["data"]["image_dir"], tc.get("soft_labels", False)
     train_ds = FaceDataset(splits["train"], img_dir, build_transforms(cfg, train=True), soft_labels=soft)

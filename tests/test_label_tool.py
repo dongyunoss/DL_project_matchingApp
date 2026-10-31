@@ -111,17 +111,20 @@ def test_server_rejects_bad_label(server):
     assert e.value.code == 400
 
 
-def test_sheet_with_path_traversal_filename_is_not_served(tmp_path):
+def test_subfolder_paths_served_but_traversal_blocked(tmp_path):
     p = tmp_path / "s.csv"
-    write_sheet(p, [["../secret.txt", "1", ""]])
-    (tmp_path / "imgs").mkdir()
-    (tmp_path / "imgs" / "secret.txt").write_text("in folder")  # name만 쓰므로 폴더 안 파일만 대상
+    write_sheet(p, [["train/1.jpg", "train/1.jpg", ""], ["../secret.txt", "x", ""]])
+    (tmp_path / "imgs" / "train").mkdir(parents=True)
+    (tmp_path / "imgs" / "train" / "1.jpg").write_bytes(b"jpg-bytes")  # FairFace식 하위 폴더 경로
     (tmp_path / "secret.txt").write_text("outside")
     srv = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(LabelSheet(p), tmp_path / "imgs"))
     threading.Thread(target=srv.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{srv.server_address[1]}"
     try:
-        _, body = get(f"http://127.0.0.1:{srv.server_address[1]}/img/0")
-        assert body == b"in folder"
+        assert get(base + "/img/0")[1] == b"jpg-bytes"
+        with pytest.raises(urllib.error.HTTPError) as e:
+            get(base + "/img/1")  # 이미지 폴더 밖 파일은 시트에 있어도 거부
+        assert e.value.code == 404
     finally:
         srv.shutdown()
         srv.server_close()

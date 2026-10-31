@@ -67,7 +67,7 @@ def run_pipeline(cfg: dict, participants_path, photo_dir, skip_train: bool = Fal
         with timer("evaluate"):
             m = evaluate(cfg, "test")
         print_report(m)
-        summary["test_metrics"] = {k: m[k] for k in ("n", "accuracy", "macro_f1", "ece", "temperature")}
+        summary["test_metrics"] = {k: m[k] for k in ("n", "accuracy", "macro_precision", "macro_recall", "macro_f1", "ece", "temperature")}
     elif not (out / "best.pt").exists():
         raise FileNotFoundError(f"{out / 'best.pt'} 없음 — --skip-train 없이 먼저 학습하세요.")
 

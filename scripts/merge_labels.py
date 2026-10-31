@@ -5,7 +5,8 @@
 출력:
   final_labels.csv  filename, identity, label, votes_dog, votes_cat, votes_rabbit, votes_fox, n_votes, agreement
   review.csv        최다 득표 동률 또는 투표 수 부족 → 재검토 목록
-  agreement.json    라벨러 간 일치도 (Fleiss' kappa, 평균 합의율)
+  agreement.json    라벨러 간 일치도 (Fleiss' kappa 전체·클래스별, 라벨러별 다수결 일치율, 라벨러 쌍 혼동 행렬)
+                    → 라벨링 파일럿 결과로 최종 클래스·기준을 정할 때 근거로 쓴다 (제안서 2)
 
   python -m scripts.merge_labels --inputs data/labels/annotators/*.csv --out-dir data/labels
   (PowerShell에서 glob이 안 펼쳐지면 --input-dir data/labels/annotators 사용)
@@ -76,6 +77,42 @@ def fleiss_kappa(count_matrix) -> float:
     return float("nan") if P_e == 1 else (P_bar - P_e) / (1 - P_e)
 
 
+def per_class_kappa(count_matrix) -> dict[str, float]:
+    """Fleiss의 클래스별 kappa: 그 클래스에 대해 라벨러들이 얼마나 일관되게 동의하는지 (낮으면 기준이 모호)."""
+    rows = [r for r in count_matrix if sum(r) > 0]
+    if not rows:
+        return {}
+    n, N = sum(rows[0]), len(rows)
+    out = {}
+    for j, c in enumerate(CLASSES):
+        p = sum(r[j] for r in rows) / (N * n)
+        if n < 2 or p in (0, 1):
+            out[c] = float("nan")
+            continue
+        disagree = sum(r[j] * (n - r[j]) for r in rows)
+        out[c] = 1 - disagree / (N * n * (n - 1) * p * (1 - p))
+    return out
+
+
+def pairwise_confusion(annotations: dict[str, dict]) -> list[list[int]]:
+    """모든 라벨러 쌍이 같은 사진에 단 라벨의 대칭 혼동 행렬. 대각선 밖이 크면 두 클래스 구분이 모호."""
+    k = len(CLASSES)
+    idx = {c: i for i, c in enumerate(CLASSES)}
+    m = [[0] * k for _ in range(k)]
+    names = list(annotations)
+    for a in range(len(names)):
+        for b in range(a + 1, len(names)):
+            A, B = annotations[names[a]], annotations[names[b]]
+            for f in A.keys() & B.keys():
+                la, lb = A[f][1], B[f][1]
+                if la and lb:
+                    m[idx[la]][idx[lb]] += 1
+                    if la != lb:
+                        m[idx[lb]][idx[la]] += 1
+                    # 같은 라벨은 대각선에 한 번만
+    return m
+
+
 def merge(annotations: dict[str, dict], min_votes: int = 1):
     """annotations: {annotator: {filename: (identity, label)}} → (final_rows, review_rows, stats)"""
     filenames = sorted({f for a in annotations.values() for f in a})
@@ -104,6 +141,11 @@ def merge(annotations: dict[str, dict], min_votes: int = 1):
         "n_items_all_voted": len(full_matrix),
         "mean_agreement": (sum(r["agreement"] for r in final) / len(final)) if final else None,
         "label_distribution": dict(Counter(r["label"] for r in final)),
+        "per_class_kappa": per_class_kappa(full_matrix),
+        "pair_confusion": {"classes": CLASSES, "matrix": pairwise_confusion(annotations)},
+        "annotator_vs_majority": {
+            name: round(sum(a.get(r["filename"], (None, None))[1] == r["label"] for r in final) / len(final), 4)
+            if final else None for name, a in annotations.items()},
     }
     return final, review, stats
 
@@ -141,6 +183,13 @@ def main(argv=None):
         json.dump(stats, f, ensure_ascii=False, indent=2)
     print(f"[merge] 라벨러 {len(annotations)}명, 항목 {stats['n_items']}개 → 확정 {stats['n_final']}, 재검토 {stats['n_review']}")
     print(f"        Fleiss' kappa={stats['fleiss_kappa(all_annotators_voted)']:.3f}  분포={stats['label_distribution']}")
+    print("        클래스별 kappa: " + ", ".join(f"{CLASS_KO[c]} {v:.2f}" for c, v in stats["per_class_kappa"].items()))
+    print("        라벨러별 다수결 일치율: " + ", ".join(f"{k} {v:.0%}" for k, v in stats["annotator_vs_majority"].items()
+                                              if v is not None))
+    m = stats["pair_confusion"]["matrix"]
+    worst = sorted(((m[i][j], CLASSES[i], CLASSES[j]) for i in range(len(m)) for j in range(i + 1, len(m))), reverse=True)
+    if worst and worst[0][0]:
+        print("        가장 많이 엇갈린 클래스 쌍: " + ", ".join(f"{CLASS_KO[a]}↔{CLASS_KO[b]} {n}회" for n, a, b in worst[:3]))
     return stats
 
 

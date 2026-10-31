@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torchvision
 
-from . import NUM_CLASSES
+from . import CLASSES, NUM_CLASSES
 
 PRETRAINED_BACKBONES = ("resnet18", "resnet34", "efficientnet_b0", "mobilenet_v3_small")
 MODEL_NAMES = (*PRETRAINED_BACKBONES, "simple_cnn")
@@ -107,12 +107,17 @@ def save_checkpoint(path, model: FaceClassifier, cfg: dict, **extra) -> None:
         "dropout": cfg["model"].get("dropout", 0.3),
         "config": cfg,
         "temperature": 1.0,
+        "classes": list(CLASSES),
         **extra,
     }, path)
 
 
 def load_checkpoint(path, device="cpu") -> tuple[FaceClassifier, dict]:
     ckpt = torch.load(path, map_location=device, weights_only=False)
+    saved = ckpt.get("classes")
+    if saved is not None and list(saved) != list(CLASSES):
+        raise ValueError(f"{path}: 체크포인트 클래스 {saved}가 configs/classes.yaml {CLASSES}와 다릅니다. "
+                         "클래스를 바꿨다면 다시 학습하세요.")
     model = FaceClassifier(ckpt["model_name"], pretrained=False, dropout=ckpt.get("dropout", 0.3))
     model.load_state_dict(ckpt["model_state"])
     return model.to(device).eval(), ckpt

@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>얼굴 유형 소개팅 매칭</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<main class="wrap">
+  <header class="head">
+    <h1>얼굴 유형 소개팅 매칭</h1>
+    <p class="lede">카메라로 얼굴을 찍으면 ResNet18이 얼굴 유형별 확률을 계산하고, 선호 조건과 결합해 서로 잘 맞는 상대를 추천합니다.</p>
+    <p class="note">분류 결과는 팀이 정한 동물상 라벨을 학습한 모델의 출력이며, 외모나 성격을 객관적으로 판단하지 않습니다. 사진은 저장하지 않습니다.</p>
+  </header>
+
+  <div class="cols">
+    <section class="panel" aria-labelledby="h-cam">
+      <h2 id="h-cam"><span class="step">1</span> 얼굴 촬영</h2>
+      <div class="stage">
+        <video id="video" playsinline muted></video>
+        <canvas id="overlay"></canvas>
+        <div id="placeholder" class="placeholder">카메라를 켜거나 사진을 올려 주세요</div>
+      </div>
+      <div class="row">
+        <button id="btn-camera" type="button">카메라 켜기</button>
+        <button id="btn-capture" type="button" class="primary" disabled>촬영 후 분석</button>
+        <label class="file">사진 올리기<input id="file" type="file" accept="image/*"></label>
+      </div>
+      <div id="status" class="status" role="status">얼굴 검출 모델 불러오는 중…</div>
+      <ul id="checks" class="checks" aria-label="촬영 상태"></ul>
+
+      <div id="result" class="result" hidden>
+        <canvas id="crop" width="224" height="224" aria-label="분석에 사용한 얼굴 영역"></canvas>
+        <div class="probs">
+          <div id="top" class="top"></div>
+          <div id="bars"></div>
+          <ul id="crop-checks" class="checks" aria-label="분석한 사진 상태"></ul>
+          <div class="muted small" id="model-info"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="h-prof">
+      <h2 id="h-prof"><span class="step">2</span> 내 정보와 선호 조건</h2>
+      <form id="form" class="form">
+        <div class="grid2">
+          <label for="f-id">이름(닉네임)<input id="f-id" required maxlength="40" autocomplete="off"></label>
+          <label for="f-gender">성별
+            <select id="f-gender"><option value="F">여성</option><option value="M">남성</option></select></label>
+          <label for="f-age">나이<input id="f-age" type="number" min="15" max="100" value="22"></label>
+          <label for="f-hobbies">취미 (쉼표로 구분)<input id="f-hobbies" placeholder="영화, 러닝, 독서"></label>
+        </div>
+        <fieldset>
+          <legend>선호하는 얼굴 유형 (비율)</legend>
+          <div id="prefs"></div>
+        </fieldset>
+        <div class="grid3">
+          <label for="f-amin">선호 나이 (최소)<input id="f-amin" type="number" min="15" max="100" value="20"></label>
+          <label for="f-amax">선호 나이 (최대)<input id="f-amax" type="number" min="15" max="100" value="27"></label>
+          <label for="f-pgender">선호 성별
+            <select id="f-pgender"><option value="M">남성</option><option value="F">여성</option><option value="">상관없음</option></select></label>
+        </div>
+        <div class="row">
+          <button id="btn-submit" type="submit" class="primary" disabled>등록하고 추천 받기</button>
+          <button id="btn-delete" type="button" hidden>내 정보 삭제</button>
+        </div>
+        <div id="form-msg" class="status" role="status"></div>
+      </form>
+    </section>
+  </div>
+
+  <section class="panel" aria-labelledby="h-match">
+    <h2 id="h-match"><span class="step">3</span> 추천 상대 Top-N <span id="pool" class="muted small"></span></h2>
+    <p class="muted small" id="match-help">점수 = (내가 본 상대 점수 + 상대가 본 내 점수) / 2. 각 방향은 얼굴 유형 코사인 유사도·나이·취미의 가중합입니다.</p>
+    <ol id="matches" class="matches"><li class="muted">등록하면 여기에 추천 상대가 표시됩니다.</li></ol>
+  </section>
+</main>
+<script type="module" src="/static/app.js"></script>
+</body>
+</html>

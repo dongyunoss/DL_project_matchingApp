@@ -74,3 +74,14 @@ def test_main_end_to_end(tmp_path):
     from faceapp.data import read_labels_csv
     recs = read_labels_csv(out / "final_labels.csv")
     assert {r["filename"] for r in recs} == {"1.jpg", "3.jpg"} and recs[0]["votes"] is not None
+
+
+def test_per_class_kappa_and_pair_confusion():
+    from scripts.merge_labels import pairwise_confusion, per_class_kappa
+    # 강아지는 모두 일치, 토끼/여우는 서로 엇갈림
+    m = [[3, 0, 0, 0], [3, 0, 0, 0], [0, 0, 2, 1], [0, 0, 1, 2]]
+    k = per_class_kappa(m)
+    assert k["dog"] == pytest.approx(1.0) and k["rabbit"] < 0.5 and k["cat"] != k["cat"]  # cat: NaN
+    ann = {"a": {"x": ("1", "rabbit"), "y": ("2", "dog")}, "b": {"x": ("1", "fox"), "y": ("2", "dog")}}
+    pc = pairwise_confusion(ann)
+    assert pc[0][0] == 1 and pc[2][3] == 1 and pc[3][2] == 1

@@ -62,3 +62,28 @@ def test_model_forward_shapes_and_freeze(name):
     m.set_backbone_trainable(False)
     assert not any(p.requires_grad for p in m.backbone.parameters())
     assert all(p.requires_grad for p in m.head.parameters())
+
+
+def test_checkpoint_class_mismatch_is_rejected(tmp_path):
+    from faceapp.config import load_config
+    from faceapp.models import load_checkpoint, save_checkpoint
+    cfg = load_config()
+    path = tmp_path / "best.pt"
+    save_checkpoint(path, FaceClassifier("simple_cnn", pretrained=False), cfg)
+    load_checkpoint(path)  # 같은 클래스면 정상
+    ckpt = torch.load(path, weights_only=False)
+    ckpt["classes"] = ["dog", "cat", "rabbit"]  # 파일럿 후 클래스가 바뀐 상황
+    torch.save(ckpt, path)
+    with pytest.raises(ValueError, match="classes.yaml"):
+        load_checkpoint(path)
+
+
+def test_classes_yaml_validation(tmp_path):
+    from faceapp import _load_classes
+    p = tmp_path / "c.yaml"
+    p.write_text("classes:\n  - {name: dog, ko: 강아지상}\n  - {name: Dog}\n", encoding="utf-8")
+    with pytest.raises(ValueError):
+        _load_classes(p)
+    p.write_text("classes:\n  - {name: dog, ko: 강아지상}\n  - {name: cat, ko: 고양이상}\n  - {name: bear, ko: 곰상}\n",
+                 encoding="utf-8")
+    assert _load_classes(p) == (["dog", "cat", "bear"], {"dog": "강아지상", "cat": "고양이상", "bear": "곰상"})

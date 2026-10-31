@@ -3,9 +3,10 @@ seed: 42
 output_dir: outputs/run1          # 체크포인트, 지표, 예측 결과 저장 위치 (git 제외)
 
 data:
-  image_dir: data/celeba/img_align_celeba   # 이미지 폴더 (라벨 CSV의 filename 기준)
+  image_dir: data/fairface/fairface-img-margin025-trainval  # 이미지 폴더 (라벨 CSV의 filename = 이 폴더 기준 상대 경로, 예: train/123.jpg)
   labels_csv: data/labels/final_labels.csv  # 형식: filename, identity, label [, votes_dog, votes_cat, votes_rabbit, votes_fox]
-  split_ratios: [0.7, 0.15, 0.15]           # train / val / test (identity 기준)
+  split_ratios: [0.7, 0.15, 0.15]           # train / val / test (identity + 중복 그룹 기준)
+  dedup_hamming: 5                          # dHash 해밍 거리 이 이하면 같은/매우 유사한 이미지로 보고 같은 분할에 묶음 (null이면 끔)
   image_size: 224
   num_workers: 2                            # Windows에서 문제가 생기면 0
   # TODO(미정): 나이대·얼굴 각도·안경·조도·비한국인 필터링 기준 (FairFace 20장 테스트 결과 반영)
@@ -47,6 +48,9 @@ calibration:
 predict:
   tta: true                    # 좌우 반전 TTA
   save_embeddings: true        # penultimate feature (.npy)
+
+webapp:
+  crop_scale: 1.6              # 얼굴 특징점 박스 대비 크롭 크기 (FairFace margin025 이미지와 비슷한 여백이 되도록). TODO(미정): 실제 사진으로 조정
 
 matching:
   top_n: 5

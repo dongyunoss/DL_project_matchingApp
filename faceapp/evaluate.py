@@ -37,6 +37,8 @@ def metrics_from_confusion(cm: np.ndarray) -> dict:
     total = cm.sum()
     return {
         "accuracy": float(tp.sum() / total) if total else 0.0,
+        "macro_precision": float(precision[present].mean()) if present.any() else 0.0,
+        "macro_recall": float(recall[present].mean()) if present.any() else 0.0,
         "macro_f1": float(f1[present].mean()) if present.any() else 0.0,
         "per_class": {c: {"precision": float(precision[i]), "recall": float(recall[i]),
                           "f1": float(f1[i]), "support": int(true_pos[i])}
@@ -128,7 +130,8 @@ def evaluate(cfg: dict, split: str = "test", ckpt_path=None) -> dict:
 
 
 def print_report(m: dict) -> None:
-    print(f"[{m['split']}] n={m['n']}  Accuracy={m['accuracy']:.4f}  Macro-F1={m['macro_f1']:.4f}  "
+    print(f"[{m['split']}] n={m['n']}  Accuracy={m['accuracy']:.4f}  Macro P/R/F1={m['macro_precision']:.4f}/"
+          f"{m['macro_recall']:.4f}/{m['macro_f1']:.4f}  "
           f"ECE={m['ece']:.4f} (보정 전 {m['ece_uncalibrated']:.4f}, T={m['temperature']:.3f})")
     for c, v in m["per_class"].items():
         print(f"  {c:>6} ({CLASS_KO[c]}): P={v['precision']:.3f} R={v['recall']:.3f} F1={v['f1']:.3f} n={v['support']}")

@@ -1,14 +1,27 @@
-# 딥러닝 얼굴 유형 분류 기반 대학생 소개팅 자동 매칭 (프로토타입)
+# 딥러닝 기반 얼굴 유형 분류를 활용한 소개팅 자동 매칭 시스템
 
-참가자 사진을 **강아지상 / 고양이상 / 토끼상 / 여우상**으로 분류하고(ResNet18 transfer learning),
-보정된 유형별 확률을 선호 조건(선호 유형, 나이, 취미)과 결합해 **Top-N 상대를 추천**합니다.
+[딥러닝] 팀 프로젝트 · 팀장 김주환 · 팀원 박정원, 김정유, 이동윤, 김채하
+
+참가자의 얼굴 사진을 입력받아 ResNet18로 얼굴 유형(1차 후보: **강아지상 / 고양이상 / 토끼상 / 여우상**)별 확률을 출력하고,
+그 확률과 사용자가 입력한 선호 유형·조건을 결합해 **Top-N 상대를 추천**합니다.
 
 ```
-사진 → 전처리/증강 → ResNet18 (ImageNet 사전학습 → fine-tune) → Softmax(logits/T) 확률 + 임베딩
-     → 코사인 유사도 + 나이/취미 가중합 (양방향) → Top-N
+카메라(getUserMedia) → MediaPipe Face Landmarker 얼굴 검출 → Canvas로 얼굴 영역 추출·정렬
+  → ResNet18 (ImageNet 사전학습 → Fine-tuning) → Softmax 유형별 확률 [강아지 0.55, 고양이 0.15, 토끼 0.25, 여우 0.05]
+  → 선호 유형 벡터와 코사인 유사도 (+ 나이·취미) → 매칭 점수 → Top-N 추천
 ```
 
-설계 상세, 데이터 규칙, 미정 사항(TODO)은 [CLAUDE.md](CLAUDE.md)를 참고하세요.
+| 제안서 항목 | 구현 위치 |
+|---|---|
+| 3-1 얼굴 유형 분류 모델 (ResNet18 Transfer Learning / Fine-tuning, Softmax 확률) | `faceapp/models.py`, `faceapp/train.py` |
+| 3-2 데이터 규모별 성능 비교 (Loss, Accuracy, Precision, Recall, F1, Confusion Matrix) | `scripts/data_scaling.py`, `faceapp/evaluate.py` |
+| 3-3 얼굴 입력 및 전처리 (getUserMedia, Video, Canvas, MediaPipe Face Landmarker) | `faceapp/webapp.py`, `faceapp/web/` |
+| 3-4 매칭 시스템 (확률 벡터 × 선호 벡터 유사도, 나이·취미, Top-N) | `faceapp/matching.py` |
+| 4-1 FairFace East Asian subset + 자체 라벨링 | `scripts/sample_fairface_candidates.py`, `scripts/label_tool.py`, `scripts/merge_labels.py` |
+| 4-2 Train/Val/Test 분리, 동일·유사 이미지 중복 확인 | `faceapp/dedup.py`, `faceapp/data.py` |
+| 2) 라벨링 파일럿으로 최종 클래스·기준 확정 | `configs/classes.yaml`, `merge_labels`의 클래스별 일치도 |
+
+설계 상세와 미정 사항은 [CLAUDE.md](CLAUDE.md)를 참고하세요.
 
 ---
 
@@ -30,181 +43,166 @@ pip install -r requirements.txt
 
 # 4) GPU 확인 → True, NVIDIA GeForce GTX 1650 Ti 가 나오면 성공
 python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0) if torch.cuda.is_available() else '')"
+
+# 5) 웹캠 데모용 MediaPipe 받기 (처음 한 번, 약 40MB, 버전·해시 고정)
+python -m scripts.fetch_mediapipe
 ```
 
 - `nvidia-smi` 우측 상단의 `CUDA Version`이 드라이버가 지원하는 최대 버전입니다. 그 이하의 CUDA 빌드를 고르세요.
 - `torch.cuda.is_available()`가 False면 CPU 빌드가 깔린 것입니다: `pip uninstall torch torchvision` 후 2)를 다시 실행.
 - `pip install -r requirements.txt`를 먼저 하면 CPU 빌드가 깔릴 수 있으니 **순서를 지켜주세요**.
 
-## 2. 빠른 확인 (라벨 없이)
+## 2. 빠른 확인 (데이터 없이)
 
 ```powershell
-python -m pytest -q                       # 단위 테스트 (매칭, 라벨 병합, split, loss/지표/보정, 리포트, 시간 비교)
-python -m scripts.smoke_test              # 전체 파이프라인 1회 (CPU 약 15초)
-python -m scripts.smoke_test --pretrained # ImageNet 가중치 다운로드까지 확인 (처음 한 번, 인터넷 필요)
-python -m scripts.compare_models --smoke  # ResNet18 vs SimpleCNN 비교표 생성 동작 확인
+python -m pytest -q                        # 단위 테스트
+python -m scripts.smoke_test               # 합성 데이터로 전체 파이프라인 1회 (CPU 약 15초)
+python -m scripts.smoke_test --pretrained  # ImageNet 사전학습 가중치 다운로드까지 확인 (처음 한 번)
+python -m scripts.data_scaling --smoke     # 데이터 규모별 비교표·그래프 생성 확인
+python -m scripts.compare_models --smoke   # ResNet18 vs SimpleCNN 비교표 생성 확인
 ```
 
-스모크 테스트는 합성 도형 이미지와 가상 라벨러 5명을 만들어 **다수결 병합 → 학습(soft label, Mixup, freeze→finetune)
-→ temperature scaling → 평가 → 참가자 예측(TTA) → Grad-CAM → Top-N 매칭 → HTML 리포트 → 시간 비교**까지 돌립니다.
-결과는 `outputs/smoke/run/`에 저장되며, **`report.html`을 브라우저로 열면 매칭 결과를 볼 수 있습니다.**
-합성 데이터라 성능 수치에는 의미가 없습니다.
-`--model simple_cnn`(베이스라인), `--image-size 224`(실제 해상도)도 확인할 수 있습니다.
+스모크 테스트는 합성 도형 이미지와 가상 라벨러 5명으로 **다수결 병합 → 학습 → 확률 보정 → 평가 → 예측 → Grad-CAM → Top-N 매칭 → HTML 리포트**를 돌립니다.
+결과는 `outputs/smoke/run/`에 저장되고, `report.html`을 브라우저로 열면 볼 수 있습니다. 합성 데이터라 수치에는 의미가 없습니다.
+
+웹캠 데모도 스모크 테스트 모델로 바로 띄워 볼 수 있습니다 (분류 결과는 의미 없음, 화면·흐름 확인용):
+```powershell
+python -m faceapp.webapp --set output_dir=outputs/smoke/run `
+    --seed-participants outputs/smoke/participants.json --seed-predictions outputs/smoke/run/predictions.csv
+```
 
 ## 3. 실제 데이터 워크플로
 
-### 3-1. CelebA 받기 (각자 PC, git에 올리지 않음)
-[CelebA 공식 페이지](https://mmlab.ie.cuhk.edu.hk/projects/CelebA.html)의 Google Drive 링크에서 아래 파일을 받습니다.
+### 3-1. FairFace 받기 (각자 PC, git에 올리지 않음)
+[FairFace GitHub](https://github.com/joojs/fairface)의 링크에서 아래 파일을 받아 `data/fairface/`에 둡니다.
 
-| 받을 파일 (Drive 안 위치) | 놓을 위치 |
+| 받을 파일 | 놓을 위치 |
 |---|---|
-| `Img/img_align_celeba.zip` (약 1.4GB, 정렬된 얼굴 178×218) | 압축을 풀어 `data/celeba/img_align_celeba/000001.jpg …` |
-| `Anno/identity_CelebA.txt` (identity 분리에 **필수**) | `data/celeba/identity_CelebA.txt` |
-| `Anno/list_attr_celeba.txt` (속성 필터용, 선택) | `data/celeba/list_attr_celeba.txt` |
+| Padding=0.25 이미지 `fairface-img-margin025-trainval.zip` | 압축을 풀어 `data/fairface/fairface-img-margin025-trainval/train/1.jpg …`, `…/val/1.jpg …` |
+| 라벨 `fairface_label_train.csv`, `fairface_label_val.csv` | `data/fairface/` |
 
-- Kaggle 등의 미러판에는 `identity_CelebA.txt`가 빠져 있는 경우가 많으니 공식 링크에서 받으세요.
-- 비상업적 연구용 데이터입니다. `data/`는 `.gitignore`로 제외되어 있고, 팀 내 공유는 git이 아닌 비공개 드라이브로 합니다.
-- `configs/default.yaml`의 기본 경로(`data/celeba/img_align_celeba`)와 같으므로 설정을 바꿀 필요가 없습니다.
+- `configs/default.yaml`의 기본 경로와 같으므로 설정을 바꿀 필요가 없습니다.
+- `data/`는 `.gitignore`로 제외되어 있습니다. 팀 내 공유는 git이 아닌 비공개 드라이브로 합니다.
 
-### 3-2. 라벨링 후보 샘플링 (한 명만 실행해서 시트 배포)
+### 3-2. 라벨링 후보 샘플링 (한 명이 실행해서 배포)
 ```powershell
-python -m scripts.sample_celeba_candidates --celeba-root data/celeba --n 1500 `
-    --annotators member1 member2 member3 member4 member5 --copy-to data/labeling_images
+python -m scripts.sample_fairface_candidates --fairface-root data/fairface --n 1500 `
+    --annotators 김주환 박정원 김정유 이동윤 김채하 --copy-to data/labeling_images
 ```
-- identity당 1장씩 1,500명을 뽑아 `data/labels/candidates.csv`와 팀원별 시트 `data/labels/annotators/<이름>.csv`를 만듭니다.
-- `--copy-to` 폴더(`data/labeling_images`, 약 1,500장)만 팀원에게 나눠 주면 각자 CelebA 전체를 받을 필요가 없습니다.
-- `--exclude-attr Eyeglasses Blurry`, `--require-attr Young` 등 CelebA 속성 필터를 쓸 수 있습니다. 어떤 필터를 쓸지는 아직 미정입니다.
-- 같은 `--seed`(기본 42)로 실행하면 누가 돌려도 같은 결과가 나옵니다.
+- `race == "East Asian"`만 골라 1,500장을 뽑고, 그 안의 동일·유사 이미지는 하나만 남깁니다.
+- `data/labels/candidates.csv`와 팀원별 시트 `data/labels/annotators/<이름>.csv`를 만듭니다.
+- `--copy-to` 폴더(약 1,500장)만 나눠 주면 각자 FairFace 전체를 받을 필요가 없습니다.
+- 나이대·성별 필터: `--ages 20-29 30-39`, `--genders Female`, `--balance-gender`. 어떤 필터를 쓸지는 아직 미정입니다.
+- 같은 `--seed`(기본 42)면 누가 실행해도 같은 결과가 나옵니다.
 
-### 3-2b. 라벨링 (각자 독립적으로)
+### 3-3. 라벨링 파일럿 → 클래스·기준 확정
+제안서에 따라, 먼저 소량(예: 100~200장)으로 파일럿 라벨링을 해서 최종 클래스와 기준을 정합니다.
+
 ```powershell
-python -m scripts.label_tool --sheet data/labels/annotators/member1.csv --images data/labeling_images
+python -m scripts.label_tool --sheet data/labels/annotators/김주환.csv --images data/labeling_images
 ```
-- 브라우저가 열리면 숫자키로 라벨을 답니다: `1` 강아지상 · `2` 고양이상 · `3` 토끼상 · `4` 여우상 · `0` 모름(기권). 누르면 다음 사진으로 넘어갑니다.
-- 이동은 `←`/`→`, 다음 미라벨로 건너뛰기는 `N`, 라벨 지우기는 `Backspace`입니다.
-- 누를 때마다 시트 CSV에 바로 저장됩니다. 언제 꺼도 되고, 다시 켜면 이어서 합니다. 종료는 터미널에서 `Ctrl+C`.
-- 다른 사람의 라벨을 보지 않고 **독립적으로** 라벨링해야 다수결이 의미 있습니다.
-- 팀 라벨링 기준이 정해지면 텍스트 파일로 만들어 `--guide 기준.txt`로 화면에 띄울 수 있습니다 (기준은 아직 미정).
-- 끝나면 각자의 `<이름>.csv`를 한 사람에게 모아 `data/labels/annotators/`에 넣습니다. CSV에는 사진이 없어 메신저로 공유해도 됩니다.
+- 브라우저에서 숫자키로 라벨을 답니다: `1` 강아지상 · `2` 고양이상 · `3` 토끼상 · `4` 여우상 · `0` 모름(기권). 누르면 다음 사진으로 넘어갑니다.
+- 이동 `←`/`→` · 다음 미라벨 `N` · 지우기 `Backspace`. 누를 때마다 CSV에 바로 저장되고, 다시 켜면 이어서 합니다.
+- 다른 사람의 라벨을 보지 않고 **독립적으로** 라벨링합니다. 기준 문서가 있으면 `--guide 기준.txt`로 화면에 띄울 수 있습니다.
 
-### 3-3. 다수결 병합
+모은 시트를 병합하면 파일럿 분석이 함께 나옵니다.
 ```powershell
 python -m scripts.merge_labels --input-dir data/labels/annotators --out-dir data/labels
 ```
-- `final_labels.csv`: `filename, identity, label` 형식이며, 투표 분포 `votes_*`도 함께 저장됩니다 (soft label 학습에 사용).
-- `review.csv`: 최다 득표 **동률**이거나 유효 투표가 `--min-votes`(기본 3) 미만인 항목 → 재검토 목록.
-- `agreement.json`: Fleiss' kappa(라벨러 간 일치도)와 라벨 분포. 보고서에 쓸 수 있습니다.
+- `final_labels.csv`: 다수결 최종 라벨(`filename, identity, label` + 투표 분포 `votes_*`)
+- `review.csv`: 최다 득표 **동률**이거나 유효 투표가 `--min-votes`(기본 3) 미만인 항목
+- `agreement.json`과 터미널 출력:
+  - 전체·**클래스별 Fleiss' kappa**: 낮은 클래스는 기준이 모호하다는 뜻
+  - **가장 많이 엇갈린 클래스 쌍**: 예) 강아지상↔토끼상
+  - **라벨러별 다수결 일치율**: 기준을 다르게 이해한 사람이 있는지 확인
+
+파일럿 결과로 클래스를 바꾸려면 `configs/classes.yaml`만 수정하면 됩니다. 기존 모델은 클래스가 다르면 로드할 때 에러가 나므로 다시 학습하세요.
 
 ### 3-4. 학습 / 평가
 ```powershell
-python -m faceapp.train                                   # configs/default.yaml 사용
-python -m faceapp.evaluate                                # test split: Accuracy, Macro F1, Confusion Matrix, ECE
+python -m faceapp.train      # configs/default.yaml 사용
+python -m faceapp.evaluate   # test: Accuracy, Macro Precision/Recall/F1, Confusion Matrix, ECE
 ```
-- identity 기준으로 split하고, 같은 인물이 두 split에 들어가면 `assert`로 실패합니다. 사용한 split은 `outputs/run1/splits.csv`에 저장됩니다.
-- 학습이 끝나면 val set으로 temperature scaling을 수행하고, 그 T를 체크포인트에 저장합니다.
-- 결과물(`outputs/run1/`): `best.pt`, `history.csv`, `learning_curve.png`, `metrics_test.json`,
-  `confusion_matrix_test.{csv,png}`, `predictions_test.csv`.
+- **중복 확인**: 학습 전에 모든 이미지의 dHash를 비교해 동일·매우 유사한 이미지(크기 변경, 좌우 반전 포함)를 한 그룹으로 묶고, 그룹 단위로 분리합니다. 그룹이 여러 분할에 걸치면 `assert`로 실패합니다. 찾은 쌍은 `duplicates.csv`에 저장됩니다.
+- 결과(`outputs/run1/`): `best.pt`, `history.csv`·`learning_curve.png`(Training/Validation Loss), `metrics_test.json`, `confusion_matrix_test.{csv,png}`, `splits.csv`.
+- OOM(CUDA out of memory) 시: `--set train.batch_size=16 train.accum_steps=2`
+- Windows에서 DataLoader 오류 시: `--set data.num_workers=0`
 
-설정 덮어쓰기 예시:
+### 3-5. 데이터 규모별 성능 비교 (제안서 3-2)
 ```powershell
-# OOM (CUDA out of memory) 시: batch 16 + gradient accumulation 2 = 유효 batch 32
-python -m faceapp.train --set train.batch_size=16 train.accum_steps=2
-
-# CNN 베이스라인 (처음부터 학습) — ResNet18 transfer learning과 비교
-python -m faceapp.train  --set model.name=simple_cnn output_dir=outputs/cnn_baseline
-python -m faceapp.evaluate --set model.name=simple_cnn output_dir=outputs/cnn_baseline
-
-# 실험 예: 투표 분포 soft label + Mixup
-python -m faceapp.train --set train.soft_labels=true train.mixup_alpha=0.2 output_dir=outputs/soft_mixup
+python -m scripts.data_scaling                                    # 학습 데이터 25/50/75/100%
+python -m scripts.data_scaling --fractions 0.1 0.25 0.5 1.0 --seeds 1 2 3
 ```
-Windows에서 DataLoader 관련 오류가 나면 `--set data.num_workers=0`을 붙이세요.
+- val/test는 고정하고, train만 **클래스 균형을 맞춰** 단계적으로 늘립니다. 작은 단계는 큰 단계에 포함됩니다.
+- `--seeds`를 여러 개 주면 평균±표준편차를 냅니다. 데이터가 적을 때 권장합니다.
+- 결과(`outputs/data_scaling/`):
+  - `scaling_summary.md`: 보고서에 붙일 표
+  - `scaling.png`: 데이터 수 vs Accuracy/Precision/Recall/F1
+  - `loss_curves.png`: 단계별 Training/Validation Loss
+  - 단계별 폴더의 Confusion Matrix
 
-### 3-5. 한 번에 실행: 학습 → 평가 → 예측 → Grad-CAM → 매칭 → 리포트
+학습 방법 비교(Transfer vs 처음부터 학습 등)는 `compare_models`로 합니다.
 ```powershell
-python -m faceapp.pipeline --participants data/participants.json --photos data/participants/photos
-python -m faceapp.pipeline --participants data/participants.json --photos data/participants/photos --skip-train  # 기존 모델로 매칭만
+python -m scripts.compare_models   # 기본: resnet18_transfer vs cnn_baseline
+python -m scripts.compare_models --runs "transfer:model.name=resnet18" "scratch:model.name=resnet18 model.pretrained=false" `
+    "linear_probe:train.freeze_backbone_epochs=100"
 ```
-결과(`outputs/run1/`):
-- `report.html`: 참가자별 얼굴 유형 확률과 Top-N 상대, 세부 점수 (발표·시연용)
-- `matches.json`: 매칭 결과
-- `gradcam_participants.png`: 모델이 얼굴의 어느 부분을 보고 분류했는지
-- `pipeline_summary.json`: 테스트 지표와 단계별 소요 시간, AI 매칭(예측+매칭) 시간
 
-단계별로 따로 실행할 수도 있습니다.
+### 3-6. 웹캠 데모 (제안서 3-3, 3-4)
 ```powershell
-python -m faceapp.predict  --images data/participants/photos           # → predictions.csv (+ embeddings.npy)
-python -m faceapp.gradcam  --images data/participants/photos --max 8   # → gradcam.png
-python -m faceapp.matching --participants data/participants.json --top-n 5   # → matches.json
+python -m faceapp.webapp     # → 브라우저에서 http://127.0.0.1:8000
 ```
-`participants.json` 형식 (**잠정 — 입력 형식은 아직 미정**, 예시: `examples/participants.example.json`):
-```json
-[
-  {"id": "p01", "gender": "F", "age": 22, "photo": "p01.jpg", "hobbies": ["영화", "러닝"],
-   "preference": {"face_type": {"dog": 0.7, "cat": 0.3}, "age_min": 21, "age_max": 26, "gender": "M"}}
-]
-```
+1. **카메라 켜기**: `getUserMedia`로 카메라를 열고, MediaPipe Face Landmarker가 얼굴을 실시간으로 찾습니다. 촬영 상태(얼굴 크기, 정면 여부, 기울기)도 안내합니다.
+2. **촬영 후 분석**: Canvas로 프레임을 캡처하고, 눈이 수평이 되도록 회전해 FairFace와 비슷한 구도의 224×224 얼굴 영역을 잘라 ResNet18로 보냅니다. 화면에 유형별 확률과 조명 상태가 표시됩니다. 카메라가 없으면 **사진 올리기**를 쓰면 됩니다.
+3. **내 정보와 선호 조건**: 선호 유형 비율, 나이, 취미, 선호 성별을 입력하고 등록하면 **추천 상대 Top-N**이 나옵니다.
 
-### 3-6. 모델 비교 실험 (ResNet18 transfer vs CNN 베이스라인 등)
+참고:
+- **사진은 저장하지 않습니다.** 확률값과 입력한 프로필만 `data/webapp/participants.json`에 남고, "내 정보 삭제"로 지울 수 있습니다.
+- 시연 전에 상대 풀을 채우려면 `--seed-participants <participants.json> --seed-predictions <predictions.csv>`를 붙입니다(3-7 참고).
+- 카메라는 보안상 `localhost`(127.0.0.1)에서만 열립니다. 다른 기기에서 접속하려면 HTTPS가 필요합니다.
+- `scripts.fetch_mediapipe`를 안 했다면 CDN에서 불러옵니다. 그것도 실패하면 얼굴 검출 없이 가운데 영역으로 분석합니다.
+
+### 3-7. 사진 폴더 일괄 처리 (리포트)
 ```powershell
-python -m scripts.compare_models          # 기본: resnet18_transfer vs cnn_baseline
-python -m scripts.compare_models --runs "resnet18_transfer:model.name=resnet18" `
-    "resnet18_scratch:model.name=resnet18 model.pretrained=false" "cnn_baseline:model.name=simple_cnn"
-python -m scripts.compare_models --runs "hard:train.soft_labels=false" "soft:train.soft_labels=true" `
-    --set train.epochs=15
+python -m faceapp.pipeline --participants data/participants.json --photos data/participants/photos --skip-train
 ```
-모든 run이 **같은 split**으로 학습·평가됩니다 (assert로 확인).
-`outputs/compare/comparison.md`에 Accuracy, Macro F1, ECE, 파라미터 수, 학습 시간 표가 생성되며, 보고서에 바로 붙일 수 있습니다.
+참가자 사진 폴더를 한 번에 예측·매칭하고 `report.html`을 만듭니다. `participants.json` 형식은 `examples/participants.example.json`을 참고하세요(잠정).
 
-### 3-7. 수작업 vs AI 매칭 시간 비교
-1. `examples/matching_time.example.csv`를 `data/timing/matching_time.csv`로 복사합니다.
-2. 같은 참가자 그룹에 대해 수작업 매칭 시간(`manual`)과 AI 추천 검토 시간(`ai_assisted`)을 분 단위로 기록합니다.
-3. 아래 명령으로 비교합니다.
-```powershell
-python -m scripts.compare_matching_time --timing data/timing/matching_time.csv `
-    --pipeline-summary outputs/run1/pipeline_summary.json
-```
-- 모델 계산 시간(참가자당 초)은 `ai_assisted` 시간에 자동으로 더해집니다.
-- 결과로 참가자당 소요 시간과 절감률이 `time_comparison.json`에 저장됩니다.
-- 측정 프로토콜(누가, 몇 명, 어떤 조건으로 측정할지)은 아직 미정입니다.
-
-## 4. 매칭 점수
+## 4. 매칭 점수 (제안서 3-4)
 방향 점수 `S(a→b) = Σ wᵢ·sᵢ / Σ wᵢ` (정보가 없는 항목은 빼고 가중치를 재정규화)
-- `s_face = cos(b의 보정된 유형 확률, a의 선호 유형 벡터)`
-- `s_age` = b의 나이가 a의 선호 범위 안이면 1, 범위 밖이면 `age_tolerance`년에 걸쳐 0까지 선형 감소
-- `s_hobby` = 취미 Jaccard 유사도
-- 양방향: `(S(a→b) + S(b→a)) / 2`. 선호 성별이 지정되면 하드 필터로 적용합니다.
-- 가중치(`matching.weights`)는 임시값입니다 (TODO).
+- `s_face = cos(b의 얼굴 유형 확률, a의 선호 유형 벡터)`. 예) A 얼굴 [0.55, 0.15, 0.25, 0.05] · B 선호 [0.70, 0.00, 0.30, 0.00]
+- `s_age`: 상대 나이가 선호 범위 안이면 1, 벗어나면 `age_tolerance`년에 걸쳐 0까지 감소
+- `s_hobby`: 취미 Jaccard 유사도
+- 최종 점수 = `(S(a→b) + S(b→a)) / 2` (양방향). 선호 성별은 필터로 적용
+- 가중치(`matching.weights`: 얼굴 0.6, 나이 0.25, 취미 0.15)는 임시값입니다.
 
-## 5. 딥러닝 기법 요약 (config 키로 on/off → 실험 비교)
+## 5. 딥러닝 기법 (config 키로 on/off → 비교 실험)
 | 기법 | 목적 | 키 |
 |---|---|---|
-| ImageNet 사전학습 ResNet18 transfer learning | 적은 데이터(~1.5k)로 학습 | `model.name`, `model.pretrained` |
-| Backbone freeze → 전체 fine-tune, discriminative LR | 사전학습 특징 보존 + 도메인 적응 | `train.freeze_backbone_epochs`, `train.backbone_lr_factor` |
-| AdamW + warmup + cosine | 안정적 수렴 | `train.lr`, `train.warmup_epochs` |
-| AMP, gradient accumulation | 4GB VRAM 대응 | `train.amp`, `train.accum_steps` |
-| Augmentation, label smoothing, Mixup/CutMix, dropout | 과적합 방지 | `augment.*`, `train.*` |
+| ImageNet 사전학습 ResNet18 + 분류층 교체 | 적은 데이터로 학습 (Transfer Learning) | `model.name`, `model.pretrained` |
+| 처음 N epoch backbone 고정 → 전체 Fine-tuning, discriminative LR | 사전학습 특징 보존 + 얼굴 도메인 적응 | `train.freeze_backbone_epochs`, `train.backbone_lr_factor` |
+| AdamW + warmup + cosine, early stopping | 안정적 수렴, 과적합 방지 | `train.*` |
+| AMP, gradient accumulation | GTX 1650 Ti 4GB 대응 | `train.amp`, `train.accum_steps` |
+| Augmentation, label smoothing, Mixup/CutMix | 과적합 방지 | `augment.*`, `train.*` |
 | 라벨러 투표 분포 soft label | 주관적 라벨의 불확실성 반영 | `train.soft_labels` |
-| Class-weighted loss | 클래스 불균형 | `train.class_weighted_loss` |
-| Temperature scaling, ECE | 매칭에 쓰는 확률 보정 | `calibration.enabled` |
-| TTA (좌우 반전) | 추론 안정성 | `predict.tta` |
-| Grad-CAM | 판단 근거 시각화 (배경/안경 의존 점검) | `faceapp.gradcam` |
-| SimpleCNN 베이스라인 | transfer learning 효과 비교 | `model.name=simple_cnn` |
+| Temperature scaling (ECE) | 매칭에 쓰는 확률 보정 | `calibration.enabled` |
+| TTA, Grad-CAM | 추론 안정성, 판단 근거 시각화 | `predict.tta`, `faceapp.gradcam` |
 
 ## 6. 폴더 구조
 ```
-configs/default.yaml   설정 (경로, 하이퍼파라미터, 매칭 가중치)
-faceapp/               config, data, models, losses, engine, train, calibrate, evaluate, predict, gradcam,
-                       matching, report(HTML), pipeline(end-to-end)
-scripts/               sample_celeba_candidates, merge_labels, smoke_test, compare_models, compare_matching_time
-examples/              participants.json, 시간 측정 CSV 예시 (사진 없음)
-tests/                 pytest
-data/, outputs/        git 제외
+configs/default.yaml, classes.yaml   설정, 클래스 정의(파일럿 후 확정)
+faceapp/       config, data, dedup, models, losses, engine, train, calibrate, evaluate, predict, gradcam,
+               matching, report, pipeline, webapp(+ web/: index.html, app.js, style.css)
+scripts/       sample_fairface_candidates, label_tool, merge_labels, data_scaling, compare_models,
+               fetch_mediapipe, smoke_test, compare_matching_time(선택)
+examples/      participants.json, 시간 측정 CSV 예시
+tests/         pytest
+data/, outputs/, faceapp/web/vendor/   git 제외
 ```
 
 ## 참고문헌
-- He et al., "Deep Residual Learning for Image Recognition," CVPR 2016
-- Liu et al., "Deep Learning Face Attributes in the Wild," ICCV 2015
-- Guo et al., "On Calibration of Modern Neural Networks," ICML 2017
-- Selvaraju et al., "Grad-CAM: Visual Explanations from Deep Networks via Gradient-based Localization," ICCV 2017
-- Zhang et al., "mixup," ICLR 2018 / Yun et al., "CutMix," ICCV 2019
-- PyTorch Transfer Learning Tutorial: https://docs.pytorch.org/tutorials/beginner/transfer_learning_tutorial.html
+1. Kärkkäinen, K. & Joo, J., "FairFace: Face Attribute Dataset for Balanced Race, Gender, and Age for Bias Measurement and Mitigation," WACV 2021. https://arxiv.org/abs/1908.04913
+2. He, K., Zhang, X., Ren, S., & Sun, J., "Deep Residual Learning for Image Recognition," CVPR 2016. https://arxiv.org/abs/1512.03385
+3. PyTorch Transfer Learning Tutorial. https://docs.pytorch.org/tutorials/beginner/transfer_learning_tutorial.html
+4. MediaPipe Face Landmarker. https://ai.google.dev/edge/mediapipe/solutions/vision/face_landmarker
+5. Guo et al., "On Calibration of Modern Neural Networks," ICML 2017 / Selvaraju et al., "Grad-CAM," ICCV 2017

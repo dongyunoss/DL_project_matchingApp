@@ -26,7 +26,7 @@ from faceapp.config import DEFAULT_CONFIG, load_config  # noqa: E402
 DEFAULT_RUNS = ["resnet18_transfer:model.name=resnet18 model.pretrained=true",
                 "cnn_baseline:model.name=simple_cnn"]
 COLUMNS = ["run", "model", "pretrained", "params_M", "best_epoch", "train_min", "val_macro_f1",
-           "test_accuracy", "test_macro_f1", "test_ece", "temperature"]
+           "test_accuracy", "test_macro_precision", "test_macro_recall", "test_macro_f1", "test_ece", "temperature"]
 
 
 def parse_run_spec(spec: str) -> tuple[str, list[str]]:
@@ -65,6 +65,7 @@ def run_one(name: str, cfg: dict) -> dict:
     return {"run": name, "model": cfg["model"]["name"], "pretrained": cfg["model"].get("pretrained"),
             "params_M": round(params, 2), "best_epoch": summary["best_epoch"], "train_min": round(train_min, 2),
             "val_macro_f1": summary["best_val_macro_f1"], "test_accuracy": m["accuracy"],
+            "test_macro_precision": m["macro_precision"], "test_macro_recall": m["macro_recall"],
             "test_macro_f1": m["macro_f1"], "test_ece": m["ece"], "temperature": m["temperature"]}
 
 

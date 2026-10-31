@@ -50,14 +50,15 @@ def write_records_csv(records: list[dict], path, extra_cols=("split",)) -> None:
 
 # --------------------------------------------------------------------------- split
 def split_by_identity(records: list[dict], ratios=(0.7, 0.15, 0.15), seed: int = 42) -> dict[str, list[dict]]:
-    """identity 단위로 train/val/test 분리. 각 identity의 최빈 라벨로 층화(stratify)한다.
+    """그룹 단위로 train/val/test 분리. 각 그룹의 최빈 라벨로 층화(stratify)한다.
 
-    같은 인물의 모든 이미지는 반드시 하나의 split에만 들어간다.
+    그룹 = 레코드의 'group'(identity + 근접 중복 이미지를 묶은 것, dedup.assign_groups) 또는 없으면 'identity'.
+    같은 그룹의 모든 이미지는 반드시 하나의 split에만 들어간다.
     """
     assert abs(sum(ratios) - 1.0) < 1e-6, "split_ratios 합은 1이어야 합니다"
     by_id = defaultdict(list)
     for r in records:
-        by_id[r["identity"]].append(r)
+        by_id[group_of(r)].append(r)
 
     by_label = defaultdict(list)
     for ident, recs in by_id.items():
@@ -80,23 +81,28 @@ def split_by_identity(records: list[dict], ratios=(0.7, 0.15, 0.15), seed: int =
 
     splits = {s: [] for s in SPLITS}
     for r in records:
-        s = assign[r["identity"]]
+        s = assign[group_of(r)]
         splits[s].append({**r, "split": s})
     assert_no_identity_leak(splits)
     return splits
 
 
+def group_of(r: dict) -> str:
+    return str(r.get("group") or r["identity"])
+
+
 def assert_no_identity_leak(splits: dict[str, list[dict]]) -> None:
-    """같은 identity가 둘 이상의 split에 존재하면 AssertionError."""
-    ids = {s: {r["identity"] for r in recs} for s, recs in splits.items()}
-    names = list(ids)
-    for i in range(len(names)):
-        for j in range(i + 1, len(names)):
-            overlap = ids[names[i]] & ids[names[j]]
-            assert not overlap, (
-                f"identity 누수: {names[i]}와 {names[j]}에 같은 인물 {len(overlap)}명 "
-                f"(예: {sorted(overlap)[:5]})"
-            )
+    """같은 identity 또는 같은 중복 그룹이 둘 이상의 split에 존재하면 AssertionError."""
+    for key, what in (("identity", "같은 인물"), ("group", "같거나 매우 유사한 이미지")):
+        ids = {s: {str(r[key]) for r in recs if r.get(key)} for s, recs in splits.items()}
+        names = list(ids)
+        for i in range(len(names)):
+            for j in range(i + 1, len(names)):
+                overlap = ids[names[i]] & ids[names[j]]
+                assert not overlap, (
+                    f"{key} 누수: {names[i]}와 {names[j]}에 {what} {len(overlap)}건 "
+                    f"(예: {sorted(overlap)[:5]})"
+                )
 
 
 def class_counts(records: list[dict]) -> list[int]:
@@ -109,7 +115,8 @@ def build_transforms(cfg: dict, train: bool):
     size = cfg["data"]["image_size"]
     norm = [T.ToTensor(), T.Normalize(IMAGENET_MEAN, IMAGENET_STD)]
     if not train:
-        # TODO(미정): 얼굴 검출/정렬 기준. 현재는 CelebA aligned 이미지를 가정하고 resize+center crop.
+        # 학습 데이터(FairFace margin025)는 이미 얼굴 중심으로 잘려 있고, 웹캠 입력은 브라우저에서
+        # MediaPipe로 같은 구도로 잘라 보낸다(webapp.crop_scale). 여기서는 resize+center crop만 한다.
         return T.Compose([T.Resize(int(size * 1.14)), T.CenterCrop(size), *norm])
     a = cfg.get("augment", {})
     ops = [T.RandomResizedCrop(size, scale=tuple(a.get("random_resized_crop_scale", [0.85, 1.0])), ratio=(0.9, 1.1))]
