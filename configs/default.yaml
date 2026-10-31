@@ -1,0 +1,60 @@
+# 기본 설정. CLI에서 덮어쓰기: python -m faceapp.train --config configs/default.yaml --set train.epochs=5 model.name=simple_cnn
+seed: 42
+output_dir: outputs/run1          # 체크포인트, 지표, 예측 결과 저장 위치 (git 제외)
+
+data:
+  image_dir: data/celeba/img_align_celeba   # 이미지 폴더 (라벨 CSV의 filename 기준)
+  labels_csv: data/labels/final_labels.csv  # 형식: filename, identity, label [, votes_dog, votes_cat, votes_rabbit, votes_fox]
+  split_ratios: [0.7, 0.15, 0.15]           # train / val / test (identity 기준)
+  image_size: 224
+  num_workers: 2                            # Windows에서 문제가 생기면 0
+  # TODO(미정): 나이대·얼굴 각도·안경·조도·비한국인 필터링 기준 (FairFace 20장 테스트 결과 반영)
+
+augment:
+  hflip: true
+  rotation_deg: 10
+  color_jitter: 0.2            # 밝기/대비/채도 (조도 차이 대응)
+  random_resized_crop_scale: [0.85, 1.0]
+  random_erasing: 0.1          # 안경/가림 일부에 대한 강건성
+
+model:
+  name: resnet18               # resnet18 | resnet34 | efficientnet_b0 | mobilenet_v3_small | simple_cnn
+  pretrained: true             # ImageNet 사전학습 가중치 (simple_cnn은 무시)
+  dropout: 0.3
+
+train:
+  epochs: 20
+  batch_size: 32               # GTX 1650 Ti OOM 시 16 + accum_steps 2
+  accum_steps: 1               # gradient accumulation (유효 batch = batch_size × accum_steps)
+  amp: true                    # CUDA에서만 적용
+  optimizer: adamw
+  lr: 1.0e-3                   # head 학습률
+  backbone_lr_factor: 0.1      # backbone lr = lr × factor (discriminative LR)
+  weight_decay: 1.0e-4
+  warmup_epochs: 1
+  freeze_backbone_epochs: 3    # 처음 N epoch는 head만 학습 후 전체 fine-tune
+  label_smoothing: 0.05
+  soft_labels: false           # true면 votes_* 열로 만든 투표 분포를 타깃으로 사용
+  class_weighted_loss: true
+  mixup_alpha: 0.0             # >0 이면 Mixup/CutMix 사용 (예: 0.2)
+  cutmix_prob: 0.5             # mixup 사용 시 CutMix를 고를 확률
+  early_stopping_patience: 5   # val Macro F1 기준
+  max_batches_per_epoch: null  # 디버그용 (스모크 테스트에서 사용)
+
+calibration:
+  enabled: true                # temperature scaling (val set NLL 최소화)
+
+predict:
+  tta: true                    # 좌우 반전 TTA
+  save_embeddings: true        # penultimate feature (.npy)
+
+matching:
+  top_n: 5
+  bidirectional: true          # A→B, B→A 점수 평균 (상호 선호)
+  # TODO(미정): 가중치 확정 필요. 아래는 임시 기본값.
+  weights:
+    face: 0.6                  # 상대 얼굴 유형 확률 vs 내 선호 유형 벡터의 코사인 유사도
+    age: 0.25                  # 선호 나이 범위 적합도
+    hobby: 0.15                # 취미 Jaccard 유사도
+  age_tolerance: 3             # 범위 밖 나이 차이에 대한 감점 폭(년). 범위에서 이만큼 벗어나면 0점
+  # 선호 성별(preference.gender)이 지정되면 하드 필터로 적용. TODO(미정): 성별 필터 정책 확정

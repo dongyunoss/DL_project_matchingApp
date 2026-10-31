@@ -1,0 +1,8 @@
+# torch / torchvision은 GPU(CUDA) 빌드를 먼저 설치하세요 (README 참고). 아래 줄은 이미 설치돼 있으면 건너뜁니다.
+torch>=2.1
+torchvision>=0.16
+numpy>=1.24
+pyyaml>=6.0
+pillow>=10.0
+matplotlib>=3.7
+pytest>=7.4

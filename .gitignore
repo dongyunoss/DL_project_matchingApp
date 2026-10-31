@@ -1,0 +1,27 @@
+# 데이터 (CelebA 등 원본 이미지는 비상업적 연구용 — 절대 커밋 금지)
+data/
+*.jpg
+*.jpeg
+*.png
+*.bmp
+*.webp
+!docs/**/*.png
+
+# 학습 결과물
+outputs/
+runs/
+*.pt
+*.pth
+*.npy
+
+# Python / 환경
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ipynb_checkpoints/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
