@@ -53,18 +53,39 @@ python -m scripts.compare_models --smoke  # ResNet18 vs SimpleCNN 비교표 생�
 
 ## 3. 실제 데이터 워크플로
 
-### 3-1. CelebA 준비 (git에 올리지 않음)
-[CelebA](https://mmlab.ie.cuhk.edu.hk/projects/CelebA.html)에서 `img_align_celeba/`, `identity_CelebA.txt`,
-(선택) `list_attr_celeba.txt`를 받아 `data/celeba/`에 둡니다. `data/`는 `.gitignore`로 제외돼 있습니다.
+### 3-1. CelebA 받기 (각자 PC, git에 올리지 않음)
+[CelebA 공식 페이지](https://mmlab.ie.cuhk.edu.hk/projects/CelebA.html)의 Google Drive 링크에서 아래 파일을 받습니다.
 
-### 3-2. 라벨링 후보 샘플링 (identity당 1장)
+| 받을 파일 (Drive 안 위치) | 놓을 위치 |
+|---|---|
+| `Img/img_align_celeba.zip` (약 1.4GB, 정렬된 얼굴 178×218) | 압축을 풀어 `data/celeba/img_align_celeba/000001.jpg …` |
+| `Anno/identity_CelebA.txt` (identity 분리에 **필수**) | `data/celeba/identity_CelebA.txt` |
+| `Anno/list_attr_celeba.txt` (속성 필터용, 선택) | `data/celeba/list_attr_celeba.txt` |
+
+- Kaggle 등의 미러판에는 `identity_CelebA.txt`가 빠져 있는 경우가 많으니 공식 링크에서 받으세요.
+- 비상업적 연구용 데이터입니다. `data/`는 `.gitignore`로 제외되어 있고, 팀 내 공유는 git이 아닌 비공개 드라이브로 합니다.
+- `configs/default.yaml`의 기본 경로(`data/celeba/img_align_celeba`)와 같으므로 설정을 바꿀 필요가 없습니다.
+
+### 3-2. 라벨링 후보 샘플링 (한 명만 실행해서 시트 배포)
 ```powershell
 python -m scripts.sample_celeba_candidates --celeba-root data/celeba --n 1500 `
     --annotators member1 member2 member3 member4 member5 --copy-to data/labeling_images
 ```
-- `data/labels/candidates.csv`와 팀원별 시트 `data/labels/annotators/<이름>.csv`가 생성됩니다.
-- 각자 **독립적으로** `label` 열에 `dog / cat / rabbit / fox`(또는 `강아지상` 등 한글)를 입력합니다. 모르겠으면 빈 칸(기권).
+- identity당 1장씩 1,500명을 뽑아 `data/labels/candidates.csv`와 팀원별 시트 `data/labels/annotators/<이름>.csv`를 만듭니다.
+- `--copy-to` 폴더(`data/labeling_images`, 약 1,500장)만 팀원에게 나눠 주면 각자 CelebA 전체를 받을 필요가 없습니다.
 - `--exclude-attr Eyeglasses Blurry`, `--require-attr Young` 등 CelebA 속성 필터를 쓸 수 있습니다. 어떤 필터를 쓸지는 아직 미정입니다.
+- 같은 `--seed`(기본 42)로 실행하면 누가 돌려도 같은 결과가 나옵니다.
+
+### 3-2b. 라벨링 (각자 독립적으로)
+```powershell
+python -m scripts.label_tool --sheet data/labels/annotators/member1.csv --images data/labeling_images
+```
+- 브라우저가 열리면 숫자키로 라벨을 답니다: `1` 강아지상 · `2` 고양이상 · `3` 토끼상 · `4` 여우상 · `0` 모름(기권). 누르면 다음 사진으로 넘어갑니다.
+- 이동은 `←`/`→`, 다음 미라벨로 건너뛰기는 `N`, 라벨 지우기는 `Backspace`입니다.
+- 누를 때마다 시트 CSV에 바로 저장됩니다. 언제 꺼도 되고, 다시 켜면 이어서 합니다. 종료는 터미널에서 `Ctrl+C`.
+- 다른 사람의 라벨을 보지 않고 **독립적으로** 라벨링해야 다수결이 의미 있습니다.
+- 팀 라벨링 기준이 정해지면 텍스트 파일로 만들어 `--guide 기준.txt`로 화면에 띄울 수 있습니다 (기준은 아직 미정).
+- 끝나면 각자의 `<이름>.csv`를 한 사람에게 모아 `data/labels/annotators/`에 넣습니다. CSV에는 사진이 없어 메신저로 공유해도 됩니다.
 
 ### 3-3. 다수결 병합
 ```powershell

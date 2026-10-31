@@ -1,7 +1,7 @@
 """팀원별 라벨 CSV를 다수결로 합친다.
 
 입력: 팀원별 CSV (filename, identity, label). label은 dog/cat/rabbit/fox 또는 강아지상/고양이상/토끼상/여우상.
-      빈 칸은 기권으로 처리.
+      빈 칸이나 skip/모름은 기권으로 처리.
 출력:
   final_labels.csv  filename, identity, label, votes_dog, votes_cat, votes_rabbit, votes_fox, n_votes, agreement
   review.csv        최다 득표 동률 또는 투표 수 부족 → 재검토 목록
@@ -25,9 +25,12 @@ ALIASES = {**{c: c for c in CLASSES}, **{ko: en for en, ko in CLASS_KO.items()},
            **{ko.replace("상", ""): en for en, ko in CLASS_KO.items()}}
 
 
+ABSTAIN_ALIASES = {"skip", "모름", "?", "-", "x"}  # 기권 표시 (label_tool의 '모름'은 skip으로 저장됨)
+
+
 def normalize_label(raw: str) -> str | None:
     s = (raw or "").strip().lower()
-    if not s:
+    if not s or s in ABSTAIN_ALIASES:
         return None
     if s not in ALIASES:
         raise ValueError(f"알 수 없는 라벨 '{raw}' (허용: {CLASSES} 또는 한글 이름)")

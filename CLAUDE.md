@@ -32,12 +32,13 @@ faceapp/
   utils.py                 seed, device, 공용 헬퍼
 scripts/
   sample_celeba_candidates.py   CelebA identity당 1장 샘플링 → 라벨링 시트
+  label_tool.py                 브라우저 라벨링 도구 (로컬 서버, 숫자키 1~4/0, 즉시 저장)
   merge_labels.py               팀원 5명 라벨 다수결 (동률 → review.csv), 투표 분포(soft label) 저장
   smoke_test.py                 합성 데이터로 pipeline 전체 + 시간 비교 일괄 실행
   compare_models.py             여러 설정(ResNet18 transfer vs SimpleCNN 등)을 같은 split으로 학습·평가 → 비교표
   compare_matching_time.py      수작업 vs AI 보조 매칭 시간 비교 (제안서 평가 항목)
 examples/                  participants.json / 시간 측정 CSV 예시
-tests/                     pytest (matching, merge_labels, split, losses/metrics/calibration, sampling, pipeline tools)
+tests/                     pytest (matching, merge_labels, split, losses/metrics/calibration, sampling, pipeline tools, label tool)
 data/, outputs/            git 제외 (.gitignore)
 ```
 
@@ -97,6 +98,7 @@ data/, outputs/            git 제외 (.gitignore)
 ### 1주차 이후 추가된 것 (프로토타입 완성)
 - `faceapp.pipeline` 한 줄 실행 + `report.html`, `scripts.compare_models` 비교표, `scripts.compare_matching_time` 시간 비교
 - 평가/예측 transform은 체크포인트의 학습 당시 `image_size`를 따른다 (`data.build_eval_transforms`)
+- CelebA 진행용 `scripts.label_tool`: 라벨링 시트를 브라우저에서 키보드로 채운다. '모름'은 `skip`으로 저장되며, merge에서 기권으로 처리된다
 
 ## 작업 규칙
 - 실행은 저장소 루트에서 `python -m faceapp.<module>` / `python -m scripts.<script>`.
