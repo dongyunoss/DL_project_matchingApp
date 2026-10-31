@@ -43,13 +43,26 @@ def read_attr_file(path) -> dict[str, dict[str, int]]:
     return attrs
 
 
+def make_attr_filter(attrs: dict[str, dict[str, int]], exclude=(), require=()):
+    """CelebA 속성 필터: exclude 속성이 +1이면 제외, require 속성이 모두 +1이어야 통과."""
+    known = set(next(iter(attrs.values()), {}))
+    unknown = (set(exclude) | set(require)) - known
+    if unknown:
+        raise ValueError(f"알 수 없는 속성: {sorted(unknown)}")
+
+    def keep(fname: str) -> bool:
+        a = attrs.get(fname)
+        return a is not None and all(a[x] != 1 for x in exclude) and all(a[x] == 1 for x in require)
+    return keep
+
+
 def sample_one_per_identity(id_map: dict[str, str], n: int | None, seed: int = 42,
-                            keep=lambda fname: True) -> list[tuple[str, str]]:
+                            keep=None) -> list[tuple[str, str]]:
     """필터(keep)를 통과한 이미지 중 identity당 1장, 그중 n개 identity를 무작위 선택."""
     rng = random.Random(seed)
     by_id = defaultdict(list)
     for fname, ident in id_map.items():
-        if keep(fname):
+        if keep is None or keep(fname):
             by_id[ident].append(fname)
     chosen = [(rng.choice(sorted(files)), ident) for ident, files in sorted(by_id.items())]
     rng.shuffle(chosen)
@@ -81,16 +94,12 @@ def main():
 
     root = Path(args.celeba_root)
     id_map = read_identity_file(root / "identity_CelebA.txt")
-    keep = lambda f: True  # noqa: E731
+    keep = None
     if args.exclude_attr or args.require_attr:
-        attrs = read_attr_file(root / "list_attr_celeba.txt")
-        unknown = set(args.exclude_attr + args.require_attr) - set(next(iter(attrs.values())))
-        if unknown:
-            raise SystemExit(f"알 수 없는 속성: {sorted(unknown)}")
-
-        def keep(f):
-            a = attrs.get(f)
-            return a is not None and all(a[x] != 1 for x in args.exclude_attr) and all(a[x] == 1 for x in args.require_attr)
+        try:
+            keep = make_attr_filter(read_attr_file(root / "list_attr_celeba.txt"), args.exclude_attr, args.require_attr)
+        except ValueError as e:
+            raise SystemExit(str(e)) from None
 
     rows = sample_one_per_identity(id_map, args.n, args.seed, keep)
     out = Path(args.out_dir)

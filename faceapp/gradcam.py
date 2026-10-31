@@ -13,7 +13,7 @@ import torch.nn.functional as F
 
 from . import CLASSES
 from .config import add_config_args, config_from_args
-from .data import IMAGENET_MEAN, IMAGENET_STD, build_transforms, list_images, load_image
+from .data import IMAGENET_MEAN, IMAGENET_STD, build_eval_transforms, list_images, load_image
 from .models import load_checkpoint
 from .utils import ensure_dir, get_device
 
@@ -64,7 +64,7 @@ def save_gradcam_grid(cfg: dict, image_paths, out_path, ckpt_path=None) -> Path:
     model, ckpt = load_checkpoint(ckpt_path or Path(cfg["output_dir"]) / "best.pt", device)
     t = float(ckpt.get("temperature", 1.0))
     cam_fn = GradCAM(model)
-    tf = build_transforms(cfg, train=False)
+    tf = build_eval_transforms(cfg, ckpt)
     paths = list(image_paths)
     fig, axes = plt.subplots(2, len(paths), figsize=(2.2 * len(paths), 4.6), squeeze=False)
     for j, p in enumerate(paths):

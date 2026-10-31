@@ -1,0 +1,14 @@
+[
+  {
+    "id": "p01", "gender": "F", "age": 22, "photo": "p01.jpg", "hobbies": ["영화", "러닝", "사진"],
+    "preference": {"face_type": {"dog": 0.7, "cat": 0.3}, "age_min": 21, "age_max": 26, "gender": "M"}
+  },
+  {
+    "id": "p02", "gender": "M", "age": 24, "photo": "p02.jpg", "hobbies": ["게임", "러닝"],
+    "preference": {"face_type": {"rabbit": 1.0}, "age_min": 20, "age_max": 24, "gender": "F"}
+  },
+  {
+    "id": "p03", "gender": "M", "age": 23, "photo": "p03.jpg", "hobbies": ["영화", "요리"],
+    "preference": {"face_type": {"cat": 0.5, "fox": 0.5}, "gender": "F"}
+  }
+]

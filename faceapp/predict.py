@@ -11,7 +11,7 @@ from torch.utils.data import DataLoader
 
 from . import CLASSES
 from .config import add_config_args, config_from_args
-from .data import ImageListDataset, build_transforms, list_images
+from .data import ImageListDataset, build_eval_transforms, list_images
 from .engine import run_inference
 from .models import load_checkpoint
 from .utils import get_device
@@ -24,7 +24,7 @@ def predict_images(cfg: dict, image_paths, out_csv, ckpt_path=None) -> list[dict
     paths = [Path(p) for p in image_paths]
     if not paths:
         raise ValueError("예측할 이미지가 없습니다.")
-    ds = ImageListDataset(paths, build_transforms(cfg, train=False))
+    ds = ImageListDataset(paths, build_eval_transforms(cfg, ckpt))
     loader = DataLoader(ds, batch_size=cfg["train"]["batch_size"], num_workers=cfg["data"].get("num_workers", 0))
     pc = cfg.get("predict", {})
     out = run_inference(model, loader, device, amp=cfg["train"].get("amp", True), tta=pc.get("tta", True),

@@ -1,4 +1,4 @@
-# 딥러닝 얼굴 유형 분류 기반 대학생 소개팅 자동 매칭 (1주차 프로토타입)
+# 딥러닝 얼굴 유형 분류 기반 대학생 소개팅 자동 매칭 (프로토타입)
 
 참가자 사진을 **강아지상 / 고양이상 / 토끼상 / 여우상**으로 분류하고(ResNet18 transfer learning),
 보정된 유형별 확률을 선호 조건(선호 유형, 나이, 취미)과 결합해 **Top-N 상대를 추천**합니다.
@@ -39,14 +39,17 @@ python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_
 ## 2. 빠른 확인 (라벨 없이)
 
 ```powershell
-python -m pytest -q                 # 단위 테스트 (매칭, 라벨 병합, split, loss/지표/보정)
-python -m scripts.smoke_test        # 전체 파이프라인 1회: 합성 데이터 → 학습 → 평가 → 예측 → Grad-CAM → Top-N
+python -m pytest -q                       # 단위 테스트 (매칭, 라벨 병합, split, loss/지표/보정, 리포트, 시간 비교)
+python -m scripts.smoke_test              # 전체 파이프라인 1회 (CPU 약 15초)
+python -m scripts.smoke_test --pretrained # ImageNet 가중치 다운로드까지 확인 (처음 한 번, 인터넷 필요)
+python -m scripts.compare_models --smoke  # ResNet18 vs SimpleCNN 비교표 생성 동작 확인
 ```
 
 스모크 테스트는 합성 도형 이미지와 가상 라벨러 5명을 만들어 **다수결 병합 → 학습(soft label, Mixup, freeze→finetune)
-→ temperature scaling → 평가 → 참가자 예측(TTA) → Grad-CAM → 매칭**까지 수십 초 안에 돌립니다.
-결과는 `outputs/smoke/run/`에 저장됩니다. 합성 데이터라 성능 수치에는 의미가 없습니다.
-`--model simple_cnn`으로 베이스라인 모델도, `--pretrained`로 ImageNet 가중치 다운로드도 확인할 수 있습니다.
+→ temperature scaling → 평가 → 참가자 예측(TTA) → Grad-CAM → Top-N 매칭 → HTML 리포트 → 시간 비교**까지 돌립니다.
+결과는 `outputs/smoke/run/`에 저장되며, **`report.html`을 브라우저로 열면 매칭 결과를 볼 수 있습니다.**
+합성 데이터라 성능 수치에는 의미가 없습니다.
+`--model simple_cnn`(베이스라인), `--image-size 224`(실제 해상도)도 확인할 수 있습니다.
 
 ## 3. 실제 데이터 워크플로
 
@@ -95,19 +98,53 @@ python -m faceapp.train --set train.soft_labels=true train.mixup_alpha=0.2 outpu
 ```
 Windows에서 DataLoader 관련 오류가 나면 `--set data.num_workers=0`을 붙이세요.
 
-### 3-5. 예측 → Grad-CAM → 매칭
+### 3-5. 한 번에 실행: 학습 → 평가 → 예측 → Grad-CAM → 매칭 → 리포트
 ```powershell
-python -m faceapp.predict  --images data/participants/photos           # → outputs/run1/predictions.csv (+ embeddings.npy)
-python -m faceapp.gradcam  --images data/participants/photos --max 8   # → outputs/run1/gradcam.png
-python -m faceapp.matching --participants data/participants.json --top-n 5   # → outputs/run1/matches.json
+python -m faceapp.pipeline --participants data/participants.json --photos data/participants/photos
+python -m faceapp.pipeline --participants data/participants.json --photos data/participants/photos --skip-train  # 기존 모델로 매칭만
 ```
-`participants.json` 형식 (**잠정 — 입력 형식은 아직 미정**):
+결과(`outputs/run1/`):
+- `report.html`: 참가자별 얼굴 유형 확률과 Top-N 상대, 세부 점수 (발표·시연용)
+- `matches.json`: 매칭 결과
+- `gradcam_participants.png`: 모델이 얼굴의 어느 부분을 보고 분류했는지
+- `pipeline_summary.json`: 테스트 지표와 단계별 소요 시간, AI 매칭(예측+매칭) 시간
+
+단계별로 따로 실행할 수도 있습니다.
+```powershell
+python -m faceapp.predict  --images data/participants/photos           # → predictions.csv (+ embeddings.npy)
+python -m faceapp.gradcam  --images data/participants/photos --max 8   # → gradcam.png
+python -m faceapp.matching --participants data/participants.json --top-n 5   # → matches.json
+```
+`participants.json` 형식 (**잠정 — 입력 형식은 아직 미정**, 예시: `examples/participants.example.json`):
 ```json
 [
   {"id": "p01", "gender": "F", "age": 22, "photo": "p01.jpg", "hobbies": ["영화", "러닝"],
    "preference": {"face_type": {"dog": 0.7, "cat": 0.3}, "age_min": 21, "age_max": 26, "gender": "M"}}
 ]
 ```
+
+### 3-6. 모델 비교 실험 (ResNet18 transfer vs CNN 베이스라인 등)
+```powershell
+python -m scripts.compare_models          # 기본: resnet18_transfer vs cnn_baseline
+python -m scripts.compare_models --runs "resnet18_transfer:model.name=resnet18" `
+    "resnet18_scratch:model.name=resnet18 model.pretrained=false" "cnn_baseline:model.name=simple_cnn"
+python -m scripts.compare_models --runs "hard:train.soft_labels=false" "soft:train.soft_labels=true" `
+    --set train.epochs=15
+```
+모든 run이 **같은 split**으로 학습·평가됩니다 (assert로 확인).
+`outputs/compare/comparison.md`에 Accuracy, Macro F1, ECE, 파라미터 수, 학습 시간 표가 생성되며, 보고서에 바로 붙일 수 있습니다.
+
+### 3-7. 수작업 vs AI 매칭 시간 비교
+1. `examples/matching_time.example.csv`를 `data/timing/matching_time.csv`로 복사합니다.
+2. 같은 참가자 그룹에 대해 수작업 매칭 시간(`manual`)과 AI 추천 검토 시간(`ai_assisted`)을 분 단위로 기록합니다.
+3. 아래 명령으로 비교합니다.
+```powershell
+python -m scripts.compare_matching_time --timing data/timing/matching_time.csv `
+    --pipeline-summary outputs/run1/pipeline_summary.json
+```
+- 모델 계산 시간(참가자당 초)은 `ai_assisted` 시간에 자동으로 더해집니다.
+- 결과로 참가자당 소요 시간과 절감률이 `time_comparison.json`에 저장됩니다.
+- 측정 프로토콜(누가, 몇 명, 어떤 조건으로 측정할지)은 아직 미정입니다.
 
 ## 4. 매칭 점수
 방향 점수 `S(a→b) = Σ wᵢ·sᵢ / Σ wᵢ` (정보가 없는 항목은 빼고 가중치를 재정규화)
@@ -135,8 +172,10 @@ python -m faceapp.matching --participants data/participants.json --top-n 5   # �
 ## 6. 폴더 구조
 ```
 configs/default.yaml   설정 (경로, 하이퍼파라미터, 매칭 가중치)
-faceapp/               config, data, models, losses, engine, train, calibrate, evaluate, predict, gradcam, matching
-scripts/               sample_celeba_candidates, merge_labels, smoke_test
+faceapp/               config, data, models, losses, engine, train, calibrate, evaluate, predict, gradcam,
+                       matching, report(HTML), pipeline(end-to-end)
+scripts/               sample_celeba_candidates, merge_labels, smoke_test, compare_models, compare_matching_time
+examples/              participants.json, 시간 측정 CSV 예시 (사진 없음)
 tests/                 pytest
 data/, outputs/        git 제외
 ```

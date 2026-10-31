@@ -65,7 +65,7 @@ def nll(logits, labels, temperature=1.0) -> float:
 
 def calibrate_checkpoint(cfg: dict, ckpt_path=None) -> dict:
     """저장된 best.pt를 val split으로 보정하고 temperature를 체크포인트에 기록."""
-    from .data import FaceDataset, build_transforms
+    from .data import FaceDataset, build_eval_transforms
     from .engine import run_inference
     from .evaluate import load_split_records, make_loader
     from .models import load_checkpoint
@@ -75,7 +75,7 @@ def calibrate_checkpoint(cfg: dict, ckpt_path=None) -> dict:
     ckpt_path = Path(ckpt_path or Path(cfg["output_dir"]) / "best.pt")
     model, ckpt = load_checkpoint(ckpt_path, device)
     recs = load_split_records(cfg, "val")
-    ds = FaceDataset(recs, cfg["data"]["image_dir"], build_transforms(cfg, train=False))
+    ds = FaceDataset(recs, cfg["data"]["image_dir"], build_eval_transforms(cfg, ckpt))
     out = run_inference(model, make_loader(ds, cfg), device, amp=cfg["train"].get("amp", True),
                         tta=cfg["predict"].get("tta", False))
     t = fit_temperature(out["logits"], out["labels"])

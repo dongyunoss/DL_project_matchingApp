@@ -126,6 +126,12 @@ def build_transforms(cfg: dict, train: bool):
     return T.Compose(ops)
 
 
+def build_eval_transforms(cfg: dict, ckpt: dict | None = None):
+    """평가/예측용 transform. 체크포인트가 있으면 학습 당시 image_size를 우선한다 (설정 불일치 방지)."""
+    size = ((ckpt or {}).get("config") or {}).get("data", {}).get("image_size", cfg["data"]["image_size"])
+    return build_transforms({**cfg, "data": {**cfg["data"], "image_size": size}}, train=False)
+
+
 # ------------------------------------------------------------------------- dataset
 def load_image(path) -> Image.Image:
     with Image.open(path) as im:

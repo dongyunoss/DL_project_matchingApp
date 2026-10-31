@@ -27,12 +27,17 @@ faceapp/
   gradcam.py               Grad-CAM 시각화 (모델이 얼굴을 보는지 검증)
   matching.py              코사인 유사도 + 가중치 결합 → 양방향 Top-N
   engine.py                공용 추론 루프 (평가/보정/예측 재사용, TTA)
+  report.py                매칭 결과 HTML 리포트 (사진은 상대 경로 참조만)
+  pipeline.py              end-to-end: 학습→평가→예측→Grad-CAM→매칭→리포트, 단계별 시간 기록
   utils.py                 seed, device, 공용 헬퍼
 scripts/
   sample_celeba_candidates.py   CelebA identity당 1장 샘플링 → 라벨링 시트
   merge_labels.py               팀원 5명 라벨 다수결 (동률 → review.csv), 투표 분포(soft label) 저장
-  smoke_test.py                 더미 데이터로 학습→보정→평가→예측→Grad-CAM→매칭 일괄 실행
-tests/                     pytest (matching, merge_labels, split, losses/metrics/calibration, sampling)
+  smoke_test.py                 합성 데이터로 pipeline 전체 + 시간 비교 일괄 실행
+  compare_models.py             여러 설정(ResNet18 transfer vs SimpleCNN 등)을 같은 split으로 학습·평가 → 비교표
+  compare_matching_time.py      수작업 vs AI 보조 매칭 시간 비교 (제안서 평가 항목)
+examples/                  participants.json / 시간 측정 CSV 예시
+tests/                     pytest (matching, merge_labels, split, losses/metrics/calibration, sampling, pipeline tools)
 data/, outputs/            git 제외 (.gitignore)
 ```
 
@@ -51,7 +56,7 @@ data/, outputs/            git 제외 (.gitignore)
 | 확률 보정 | Temperature scaling — 매칭에 확률을 직접 쓰므로 보정 필수 | `calibration.enabled` |
 | 추론 | TTA (horizontal flip 평균) | `predict.tta` |
 | 해석 | Grad-CAM으로 근거 영역 시각화 | `python -m faceapp.gradcam` |
-| 베이스라인 | 처음부터 학습하는 SimpleCNN vs ResNet18 transfer | `model.name=simple_cnn` |
+| 베이스라인 | 처음부터 학습하는 SimpleCNN vs ResNet18 transfer | `model.name=simple_cnn`, `scripts.compare_models` |
 | 표현 | penultimate 512-d 임베딩 저장 (향후 이상형 사진 기반 매칭/t-SNE) | `predict.save_embeddings` |
 
 ### 2주차 이후 확장 후보 (아직 구현 안 함)
@@ -78,6 +83,8 @@ data/, outputs/            git 제외 (.gitignore)
 - [ ] FairFace 20장 테스트에서 나온 문제(나이대, 얼굴 각도, 안경, 조도, 비한국인) → 전처리/필터링 기준
 - [ ] 동물상 라벨링 기준 (어떤 얼굴 특징으로 나눌지)
 - [ ] 매칭 가중치(`matching.weights`)와 선호 조건 입력 형식(`participants.json` 스키마는 잠정)
+- [ ] 수작업 vs AI 매칭 시간 측정 프로토콜 (`compare_matching_time.py` CSV 형식은 잠정)
+- [ ] 실제 참가자 사진(비정렬 셀카)의 얼굴 검출·정렬 방법 — 현재는 CelebA aligned crop과 같은 resize+center crop만 적용
 
 ## 1주차 범위 (~11/3) — 끝까지 한 번 돌아가는 최소 프로토타입
 1. 프로젝트 골격 (config, 데이터 로더, 모델, 학습, 평가, 예측, 매칭)
@@ -86,6 +93,10 @@ data/, outputs/            git 제외 (.gitignore)
 4. 더미 라벨 스모크 테스트 (학습 → 평가 → Top-N 매칭)
 5. matching 로직 pytest
 6. README 설치/실행 방법
+
+### 1주차 이후 추가된 것 (프로토타입 완성)
+- `faceapp.pipeline` 한 줄 실행 + `report.html`, `scripts.compare_models` 비교표, `scripts.compare_matching_time` 시간 비교
+- 평가/예측 transform은 체크포인트의 학습 당시 `image_size`를 따른다 (`data.build_eval_transforms`)
 
 ## 작업 규칙
 - 실행은 저장소 루트에서 `python -m faceapp.<module>` / `python -m scripts.<script>`.

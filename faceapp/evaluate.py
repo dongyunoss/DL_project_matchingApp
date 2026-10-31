@@ -13,7 +13,7 @@ from torch.utils.data import DataLoader
 from . import CLASS_KO, CLASSES, NUM_CLASSES
 from .calibrate import expected_calibration_error, nll
 from .config import add_config_args, config_from_args
-from .data import FaceDataset, build_transforms
+from .data import FaceDataset, build_eval_transforms
 from .engine import run_inference
 from .utils import ensure_dir, get_device, save_json
 
@@ -99,7 +99,7 @@ def evaluate(cfg: dict, split: str = "test", ckpt_path=None) -> dict:
     recs = load_split_records(cfg, split)
     if not recs:
         raise ValueError(f"'{split}' split이 비어 있습니다.")
-    ds = FaceDataset(recs, cfg["data"]["image_dir"], build_transforms(cfg, train=False))
+    ds = FaceDataset(recs, cfg["data"]["image_dir"], build_eval_transforms(cfg, ckpt))
     out = run_inference(model, make_loader(ds, cfg), device, amp=cfg["train"].get("amp", True),
                         tta=cfg["predict"].get("tta", False))
     logits, labels = out["logits"], out["labels"]
